@@ -3,11 +3,11 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
-	"io/ioutil"
 
 	"gopher-equalizer/config"
 	"gopher-equalizer/internal/errdefs"

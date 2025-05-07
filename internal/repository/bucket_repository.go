@@ -5,11 +5,11 @@ import (
 
 	"gopher-equalizer/config"
 	"gopher-equalizer/internal/errdefs"
-    "gopher-equalizer/internal/models"
+	"gopher-equalizer/internal/models"
 
-    "github.com/jackc/pgx/v5"
-    "github.com/jackc/pgx/v5/pgconn"
-    "github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -18,19 +18,19 @@ const (
 )
 
 type BucketRepository struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
 	cfg *config.Config
 }
 
 func NewBucketRepository(db *pgxpool.Pool, cfg *config.Config) BucketRepository {
 	return BucketRepository{
-		db: db,
+		db:  db,
 		cfg: cfg,
 	}
 }
 
 // Логика
-func (br *BucketRepository) TryConsume(ctx context.Context, clientID string) error {
+func (br BucketRepository) TryConsume(ctx context.Context, clientID string) error {
 	query := `
 	UPDATE token_buckets 
 		SET tokens = tokens - 1
@@ -39,25 +39,25 @@ func (br *BucketRepository) TryConsume(ctx context.Context, clientID string) err
 
 	tag, err := br.db.Exec(ctx, query, clientID)
 	if err != nil {
-        var pgErr *pgconn.PgError
-        if errdefs.As(err, &pgErr) {
+		var pgErr *pgconn.PgError
+		if errdefs.As(err, &pgErr) {
 			switch pgErr.ConstraintName {
-            case chkTokensNonNeg:
-                return errdefs.NotEnoughTokens
-            }
+			case chkTokensNonNeg:
+				return errdefs.NotEnoughTokens
+			}
 		}
 		return errdefs.Wrap(errdefs.ErrDB, err.Error())
-    }
+	}
 
-    rowsAffected := tag.RowsAffected()
-    if rowsAffected == 0 {
-        return errdefs.ErrNotFound
-    }
+	rowsAffected := tag.RowsAffected()
+	if rowsAffected == 0 {
+		return errdefs.ErrNotFound
+	}
 
 	return nil
 }
 
-func (br *BucketRepository) RefillTokens(ctx context.Context, clientID string) error {
+func (br BucketRepository) RefillTokens(ctx context.Context, clientID string) error {
 	query := `
 	UPDATE token_buckets 
 		SET tokens = LEAST(tokens + $1, capacity)
@@ -68,46 +68,46 @@ func (br *BucketRepository) RefillTokens(ctx context.Context, clientID string) e
 		ctx, query, br.cfg.Bucket.Refill.Amount, clientID)
 
 	if err != nil {
-        return errdefs.Wrap(errdefs.ErrDB, err.Error())
-    }
+		return errdefs.Wrap(errdefs.ErrDB, err.Error())
+	}
 
-    rowsAffected := tag.RowsAffected()
-    if rowsAffected == 0 {
-        return errdefs.ErrNotFound
-    }
+	rowsAffected := tag.RowsAffected()
+	if rowsAffected == 0 {
+		return errdefs.ErrNotFound
+	}
 
 	return nil
 }
 
 // CRUD
-func (br *BucketRepository) CreateBucket(ctx context.Context, bucket *models.Bucket) error {
+func (br BucketRepository) CreateBucket(ctx context.Context, bucket *models.Bucket) error {
 	query := `
  		INSERT INTO token_buckets (
  			client_id, capacity, tokens, last_refill
  		) VALUES ($1, $2, $3, $4)
 	`
 	_, err := br.db.Exec(ctx, query,
-        bucket.ClientID,
-        bucket.Capacity,
-        bucket.Tokens,
-        bucket.LastRefill,
-    )
+		bucket.ClientID,
+		bucket.Capacity,
+		bucket.Tokens,
+		bucket.LastRefill,
+	)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errdefs.As(err, &pgErr) {
 			switch pgErr.Code {
-            case "23505": // unique_violation
-                return errdefs.Wrapf(errdefs.ErrConflict, "ClientID '%s' already exists", bucket.ClientID)
-            case "23514": // check_violation
-                return errdefs.Wrapf(errdefs.ErrInvalidInput, "validation failed: %v", pgErr.Message)
-            }
+			case "23505": // unique_violation
+				return errdefs.Wrapf(errdefs.ErrConflict, "ClientID '%s' already exists", bucket.ClientID)
+			case "23514": // check_violation
+				return errdefs.Wrapf(errdefs.ErrInvalidInput, "validation failed: %v", pgErr.Message)
+			}
 		}
 		return errdefs.Wrapf(errdefs.ErrDB, "failed to create bucket: %v", err)
 	}
 	return nil
 }
 
-func (br *BucketRepository) RemoveBucket(ctx context.Context, clientID string) error {
+func (br BucketRepository) RemoveBucket(ctx context.Context, clientID string) error {
 	query := `
 		DELETE FROM token_buckets
 		where client_id = $1
@@ -115,18 +115,18 @@ func (br *BucketRepository) RemoveBucket(ctx context.Context, clientID string) e
 	tag, err := br.db.Exec(ctx, query, clientID)
 
 	if err != nil {
-        return errdefs.Wrapf(errdefs.ErrDB, "failed to delete bucket %q: %v", clientID, err)
-    }
+		return errdefs.Wrapf(errdefs.ErrDB, "failed to delete bucket %q: %v", clientID, err)
+	}
 
 	rowsAffected := tag.RowsAffected()
-    if rowsAffected == 0 {
-        return errdefs.ErrNotFound
-    }
+	if rowsAffected == 0 {
+		return errdefs.ErrNotFound
+	}
 
 	return nil
 }
 
-func (br *BucketRepository) UpdateCapacity(ctx context.Context, clientID string, newCapacity int) error {
+func (br BucketRepository) UpdateCapacity(ctx context.Context, clientID string, newCapacity int) error {
 	query := `
 	UPDATE token_buckets 
 	SET 
@@ -135,25 +135,25 @@ func (br *BucketRepository) UpdateCapacity(ctx context.Context, clientID string,
 	`
 	tag, err := br.db.Exec(ctx, query, newCapacity, clientID)
 	if err != nil {
-        var pgErr *pgconn.PgError
-        if errdefs.As(err, &pgErr) {
+		var pgErr *pgconn.PgError
+		if errdefs.As(err, &pgErr) {
 			switch pgErr.ConstraintName {
-            case chkTokensLeCap:
-                return errdefs.TokensLeCap
-            }
+			case chkTokensLeCap:
+				return errdefs.TokensLeCap
+			}
 		}
-        return errdefs.Wrapf(errdefs.ErrDB, "failed to update capacity buckets: %v", err)
-    }
+		return errdefs.Wrapf(errdefs.ErrDB, "failed to update capacity buckets: %v", err)
+	}
 
-    rowsAffected := tag.RowsAffected()
-    if rowsAffected == 0 {
-        return errdefs.ErrNotFound
-    }
+	rowsAffected := tag.RowsAffected()
+	if rowsAffected == 0 {
+		return errdefs.ErrNotFound
+	}
 
 	return nil
 }
 
-func (br *BucketRepository) UpdateCountTokens(ctx context.Context, clientID string, newCountT int) error {
+func (br BucketRepository) UpdateCountTokens(ctx context.Context, clientID string, newCountT int) error {
 	query := `
 	UPDATE token_buckets 
 	SET 
@@ -162,26 +162,25 @@ func (br *BucketRepository) UpdateCountTokens(ctx context.Context, clientID stri
 	`
 	tag, err := br.db.Exec(ctx, query, newCountT, clientID)
 	if err != nil {
-        var pgErr *pgconn.PgError
-        if errdefs.As(err, &pgErr) {
+		var pgErr *pgconn.PgError
+		if errdefs.As(err, &pgErr) {
 			switch pgErr.ConstraintName {
-            case chkTokensLeCap:
-                return errdefs.TokensLeCap
-            }
+			case chkTokensLeCap:
+				return errdefs.TokensLeCap
+			}
 		}
-        return errdefs.Wrapf(errdefs.ErrDB, "failed to update tokens buckets: %v", err)
-    }
+		return errdefs.Wrapf(errdefs.ErrDB, "failed to update tokens buckets: %v", err)
+	}
 
-    rowsAffected := tag.RowsAffected()
-    if rowsAffected == 0 {
-        return errdefs.ErrNotFound
-    }
+	rowsAffected := tag.RowsAffected()
+	if rowsAffected == 0 {
+		return errdefs.ErrNotFound
+	}
 
 	return nil
 }
 
-
-func (br *BucketRepository) GetBucket(ctx context.Context, clientID string) (*models.Bucket, error) {
+func (br BucketRepository) GetBucket(ctx context.Context, clientID string) (*models.Bucket, error) {
 	query := `
 		SELECT client_id, capacity, tokens, last_refill
 		FROM token_buckets
@@ -190,23 +189,23 @@ func (br *BucketRepository) GetBucket(ctx context.Context, clientID string) (*mo
 	var bucket models.Bucket
 
 	err := br.db.QueryRow(ctx, query, clientID).Scan(
-	    &bucket.ClientID,
-	    &bucket.Capacity,
-	    &bucket.Tokens,
-	    &bucket.LastRefill,
+		&bucket.ClientID,
+		&bucket.Capacity,
+		&bucket.Tokens,
+		&bucket.LastRefill,
 	)
-    if err != nil {
-        if errdefs.Is(err, pgx.ErrNoRows) {
-            return nil, errdefs.ErrNotFound
-        }
-        return nil, errdefs.Wrapf(errdefs.ErrDB, "failed to get bucket %s: %v", clientID, err)
-    }
+	if err != nil {
+		if errdefs.Is(err, pgx.ErrNoRows) {
+			return nil, errdefs.ErrNotFound
+		}
+		return nil, errdefs.Wrapf(errdefs.ErrDB, "failed to get bucket %s: %v", clientID, err)
+	}
 
 	return &bucket, nil
 }
 
 // Были идеи о keyset-плагинации, но я ни разу её не реализовывал, а времени мало...
-func (br *BucketRepository) ListBuckets(ctx context.Context, limit, offset int) (*[]models.Bucket, error) {
+func (br BucketRepository) ListBuckets(ctx context.Context, limit, offset int) (*[]models.Bucket, error) {
 	query := `
 		SELECT client_id, capacity, tokens, last_refill
 		FROM token_buckets

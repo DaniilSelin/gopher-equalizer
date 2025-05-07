@@ -19,23 +19,23 @@ func (lc *LoggerConfig) Build() (*zap.Logger, error) {
 }
 
 type RefillConfig struct {
-	Interval      string `yaml:"interval"`
-	Amount      int    	 `yaml:"amount"`
+	Interval string `yaml:"interval"`
+	Amount   int    `yaml:"amount"`
 }
 
 type BucketConfig struct {
-	Capacity int `yaml:"capacity"`
-	Refill  RefillConfig `yaml:"refill"`
+	Capacity int          `yaml:"capacity"`
+	Refill   RefillConfig `yaml:"refill"`
 }
 
 type ServerConfig struct {
-	Host      string `yaml:"host"`
-	Port      int    `yaml:"port"`
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
 }
 
 type PoolConfig struct {
-	MaxConns          int32 `yaml:"maxConns"`
-	MinConns          int32 `yaml:"minConns"`
+	MaxConns          int32    `yaml:"maxConns"`
+	MinConns          int32    `yaml:"minConns"`
 	MaxConnLifetime   Duration `yaml:"maxConnLifetime"`
 	MaxConnIdleTime   Duration `yaml:"maxConnIdleTime"`
 	HealthCheckPeriod Duration `yaml:"healthCheckPeriod"`
@@ -61,11 +61,16 @@ func (db DBConfig) ConnString() string {
 	)
 }
 
+type APIConfig struct {
+	DefaultLimit int `yaml:"defaultLimit"`
+}
+
 type Config struct {
-	Server         ServerConfig         `yaml:"server"`
-	Bucket   	   BucketConfig			`yaml:"bucket"`
-	DB			   DBConfig				`yaml:"db"`
-	Logger         LoggerConfig         `yaml:"logger"`
+	Server ServerConfig `yaml:"server"`
+	Bucket BucketConfig `yaml:"bucket"`
+	DB     DBConfig     `yaml:"db"`
+	Logger LoggerConfig `yaml:"logger"`
+	API	   APIConfig	`yaml:"api"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

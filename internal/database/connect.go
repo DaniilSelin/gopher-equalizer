@@ -1,9 +1,9 @@
 package database
 
 import (
-	"gopher-equalizer/config"
 	"context"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gopher-equalizer/config"
 	"time"
 )
 

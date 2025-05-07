@@ -26,17 +26,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger
-    WHERE tgname = 'update_last_refill_trigger'
-  ) THEN
-    CREATE TRIGGER update_last_refill_trigger
-      BEFORE UPDATE ON %[1]s.token_buckets
-      FOR EACH ROW
-      WHEN (OLD.tokens IS DISTINCT FROM NEW.tokens)
-      EXECUTE FUNCTION %[1]s.update_last_refill();
-  END IF;
-END;
-$$;
+CREATE OR REPLACE TRIGGER update_last_refill_trigger
+  BEFORE UPDATE ON %[1]s.token_buckets
+  FOR EACH ROW
+  WHEN (OLD.tokens IS DISTINCT FROM NEW.tokens)
+  EXECUTE FUNCTION %[1]s.update_last_refill();

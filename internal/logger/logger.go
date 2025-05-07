@@ -41,7 +41,7 @@ func GetLoggerFromCtx(ctx context.Context) *Logger {
 func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
 	if ctx.Value(RequestID) != nil {
 		fields = append(fields, zap.String(RequestID, ctx.Value(RequestID).(string)))
-	}	
+	}
 
 	l.l.Info(msg, fields...)
 }
@@ -49,7 +49,7 @@ func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
 func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
 	if ctx.Value(RequestID) != nil {
 		fields = append(fields, zap.String(RequestID, ctx.Value(RequestID).(string)))
-	}	
+	}
 
 	l.l.Debug(msg, fields...)
 }
@@ -57,7 +57,7 @@ func (l *Logger) Debug(ctx context.Context, msg string, fields ...zap.Field) {
 func (l *Logger) Error(ctx context.Context, msg string, fields ...zap.Field) {
 	if ctx.Value(RequestID) != nil {
 		fields = append(fields, zap.String(RequestID, ctx.Value(RequestID).(string)))
-	}	
+	}
 
 	l.l.Error(msg, fields...)
 }
