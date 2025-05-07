@@ -11,13 +11,16 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+    "go.uber.org/zap"
 
 	"gopher-equalizer/config"
 	"gopher-equalizer/internal/logger"
 	"gopher-equalizer/internal/database"
 	"gopher-equalizer/internal/repository"
 	"gopher-equalizer/internal/service"
+	"gopher-equalizer/internal/balancer"
 	"gopher-equalizer/internal/transport/http/api"
+	"gopher-equalizer/internal/transport/http/proxy"
 )
 
 func main() {
@@ -45,56 +48,60 @@ func main() {
 }
 
 func run(ctx context.Context, w io.Writer, args []string) (*http.Server, *pgxpool.Pool, error) {
-	// Загружаем конфиг
-	cfg, err := config.LoadConfig("config/config.yml")
-	if err != nil {
-		return nil, nil, fmt.Errorf("Error loading config: %v", err)
-	}
+    // 1. Конфиг и логгер
+    cfg, err := config.LoadConfig("config/config.yml")
+    if err != nil {
+        return nil, nil, err
+    }
+    ctx, err = logger.New(ctx, cfg)
+    if err != nil {
+        return nil, nil, err
+    }
+    log := logger.GetLoggerFromCtx(ctx)
 
-	// Подключаем логгирование
-	ctx, err = logger.New(ctx, cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Error create logger: %v", err)
-	}
+    // 2. Подключение к БД и миграции
+    dbPool, err := database.Connect(ctx, cfg)
+    if err != nil {
+        return nil, nil, err
+    }
+    if err := database.RunMigrations(ctx, cfg, dbPool); err != nil {
+        return nil, nil, err
+    }
 
-	//Подключаемся к БД
-	dbPool, err := database.Connect(ctx, cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Database connection failed: %v", err)
-	}
+    // 3. Репозиторий и bucket-сервис
+    repo := repository.NewBucketRepository(dbPool, cfg)
+    bSrv := service.NewBucketService(cfg, repo)
 
+    // 4. HTTP-API для управления buckets
+    apiH := api.NewHandler(ctx, cfg, bSrv)
+    apiMux := api.NewRouter(apiH) // ваш ServeMux для /buckets
 
-	// Запускаем миграции
-	err = database.RunMigrations(ctx, cfg, dbPool)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Migration failed: %v", err)
-	}
+    // 5. Балансировщик и прокси
+    strat, err := balancer.CreateStrategy(cfg.Balancer.Strategy, cfg.Balancer.Backends)
+    if err != nil {
+        return nil, nil, err
+    }
+    bal := balancer.NewBalancer(strat)
+    proxy := proxy.NewProxy(cfg, bal, bSrv, log)
 
-	// Создаем репозитории
-	repo := repository.NewBucketRepository(dbPool, cfg)
+    // 6. Общий mux: сначала API, потом прокси «на всё остальное»
+    mux := http.NewServeMux()
+    mux.Handle("/buckets", apiMux)
+    mux.Handle("/buckets/", apiMux)
+    mux.Handle("/", proxy)
 
-	bSrv := service.NewBucketService(cfg, repo)
+    // 7. HTTP-сервер
+    addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+    srv := &http.Server{
+        Addr:    addr,
+        Handler: mux,
+    }
+    log.Info(ctx, "starting server", zap.String("addr", addr))
+    go func() {
+        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Error(ctx, "ListenAndServe failed", zap.Error(err))
+        }
+    }()
 
-	// Создаем хэндлер
-	handler := api.NewHandler(ctx, cfg, bSrv)
-
-	// Создаём роутер
-	router := api.NewRouter(handler)
-
-	//Запускаем сервер
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("Starting server on %s...", addr)
-
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: router,
-	}
-
-	go func() {
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("HTTP server ListenAndServe: %v", err)
-		}
-	}()
-
-	return srv, dbPool, nil
+    return srv, dbPool, nil
 }

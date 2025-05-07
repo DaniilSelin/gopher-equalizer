@@ -57,7 +57,7 @@ func (br BucketRepository) TryConsume(ctx context.Context, clientID string) erro
 	return nil
 }
 
-func (br BucketRepository) RefillTokens(ctx context.Context, clientID string) error {
+func (br BucketRepository) RefillTokens(ctx context.Context, clientID string, amount int) error {
 	query := `
 	UPDATE token_buckets 
 		SET tokens = LEAST(tokens + $1, capacity)
@@ -65,7 +65,7 @@ func (br BucketRepository) RefillTokens(ctx context.Context, clientID string) er
 	`
 
 	tag, err := br.db.Exec(
-		ctx, query, br.cfg.Bucket.Refill.Amount, clientID)
+		ctx, query, amount, clientID)
 
 	if err != nil {
 		return errdefs.Wrap(errdefs.ErrDB, err.Error())

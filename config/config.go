@@ -19,7 +19,7 @@ func (lc *LoggerConfig) Build() (*zap.Logger, error) {
 }
 
 type RefillConfig struct {
-	Interval string `yaml:"interval"`
+	Interval Duration `yaml:"interval"`
 	Amount   int    `yaml:"amount"`
 }
 
@@ -65,9 +65,25 @@ type APIConfig struct {
 	DefaultLimit int `yaml:"defaultLimit"`
 }
 
+type ProxyConfig struct {
+	Timeout Duration   `yaml:"timeout"`
+  	KeepAlive Duration   `yaml:"keepAlive"`
+  	IdleConnTimeout Duration   `yaml:"idleConnTimeout"`
+  	MaxIdleConns int   `yaml:"maxIdleConns"`
+  	MaxIdleConnsPerHost int   `yaml:"maxIdleConnsPerHost"`
+  	TLSHandshakeTimeout Duration   `yaml:"TLSHandshakeTimeout"`
+}
+
+type BalancerConfig struct {
+	Backends []string `yaml:"backends"`
+	Strategy string `yaml:"strategy"`
+}
+
 type Config struct {
 	Server ServerConfig `yaml:"server"`
+	Proxy  ProxyConfig	`yaml:"proxy"`
 	Bucket BucketConfig `yaml:"bucket"`
+	Balancer BalancerConfig  `yaml:"balancer"`
 	DB     DBConfig     `yaml:"db"`
 	Logger LoggerConfig `yaml:"logger"`
 	API	   APIConfig	`yaml:"api"`

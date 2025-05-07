@@ -14,6 +14,8 @@ var (
 	NotEnoughTokens    = errors.New("not enough free tokens")
 	TokensLeCap        = errors.New("Count tokens nore then capacity")
 	ErrMigrationFailed = errors.New("Migration failed")
+	ErrNoBackends	   = errors.New("Not free backend")
+	ErrRateLimitExceeded = errors.New("ErrRateLimitExceeded")
 )
 
 // fmt.Errorf с %w

@@ -38,6 +38,10 @@ func GetLoggerFromCtx(ctx context.Context) *Logger {
 	return ctx.Value(LoggerKey).(*Logger)
 }
 
+func SetLoggerInCtx(ctx context.Context, logger *Logger) context.Context {
+	return context.WithValue(ctx, LoggerKey, logger)
+}
+
 func (l *Logger) Info(ctx context.Context, msg string, fields ...zap.Field) {
 	if ctx.Value(RequestID) != nil {
 		fields = append(fields, zap.String(RequestID, ctx.Value(RequestID).(string)))

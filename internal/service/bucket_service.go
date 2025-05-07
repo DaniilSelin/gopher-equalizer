@@ -1,13 +1,16 @@
-// internal/service/bucket_service.go
 package service
 
 import (
     "context"
+    "time"
 
     "gopher-equalizer/internal/interfaces"
+    "gopher-equalizer/internal/logger"
     "gopher-equalizer/internal/models"
     "gopher-equalizer/internal/errdefs"
     "gopher-equalizer/config"
+
+    "go.uber.org/zap"
 )
 
 type BucketService struct {
@@ -22,6 +25,56 @@ func NewBucketService(cfg *config.Config, repo interfaces.IBucketRepository) Buc
     }
 }
 
+// Логика
+func (bs BucketService) TryConsume(ctx context.Context, clientID string) error {
+    logger := logger.GetLoggerFromCtx(ctx)
+
+    err := bs.repo.TryConsume(ctx, clientID)
+    if err != nil {
+        if errdefs.Is(err, errdefs.ErrNotFound) {
+            logger.Info(ctx, "creating new token bucket for client", zap.String("clientID", clientID))
+            return bs.repo.CreateBucket(ctx,
+                &models.Bucket{
+                    ClientID:   clientID,
+                    Capacity:   bs.cfg.Bucket.Capacity,
+                    Tokens:     bs.cfg.Bucket.Capacity,
+                    LastRefill: time.Now(),
+                },
+            )
+        }
+        logger.Error(ctx, "failed to consume token", zap.String("clientID", clientID), zap.Error(err))
+        return err
+    }
+    logger.Info(ctx, "token consumed", zap.String("clientID", clientID))
+
+    bucket, err := bs.repo.GetBucket(ctx, clientID)
+    if err != nil {
+        logger.Error(ctx, "failed to fetch bucket after consume", zap.String("clientID", clientID), zap.Error(err))
+        return err
+    }
+
+    now := time.Now()
+    elapsed := now.Sub(bucket.LastRefill)
+    interval := time.Duration(bs.cfg.Bucket.Refill.Interval)
+    if elapsed >= interval {
+        // Сколько шагов интервала прошло
+        steps := int(elapsed / interval)
+        amount := steps * bs.cfg.Bucket.Refill.Amount
+
+        logger.Info(ctx, "refilling tokens",
+                    zap.String("clientID", clientID),
+                    zap.Int("amount", amount),
+                    zap.Int("capacity", bucket.Capacity),
+                )
+        if err := bs.repo.RefillTokens(ctx, clientID, amount); err != nil {
+            return err
+        }
+        logger.Info(ctx, "tokens refilled", zap.String("clientID", clientID))
+    }
+    return nil
+}
+
+// CRUD
 func (bs BucketService) CreateBucket(ctx context.Context, b *models.Bucket) error {
     if b.ClientID == "" {
         return errdefs.Wrap(errdefs.ErrInvalidInput, "ClientID reqiured")

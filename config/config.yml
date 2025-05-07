@@ -5,6 +5,21 @@ server:
 api:
   defaultLimit: 10
 
+proxy:
+  timeout: 5s
+  keepAlive: 30s
+  idleConnTimeout: 100s
+  maxIdleConns: 100
+  maxIdleConnsPerHost: 10
+  TLSHandshakeTimeout: 5s
+
+balancer:
+  strategy: round_robin # round_robin, random 
+  backends:
+    - http://localhost:8081
+    - http://localhost:8082
+    - http://localhost:8083
+
 bucket:
   capacity: 10
   refill:

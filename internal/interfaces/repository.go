@@ -16,5 +16,5 @@ type IBucketRepository interface {
 	GetBucket(ctx context.Context, clientID string) (*models.Bucket, error)
 	// Логика
 	TryConsume(ctx context.Context, clientID string) error
-	RefillTokens(ctx context.Context, clientID string) error
+	RefillTokens(ctx context.Context, clientID string, amount int) error
 }
