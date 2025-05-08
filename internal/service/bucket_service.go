@@ -28,8 +28,9 @@ func NewBucketService(cfg *config.Config, repo interfaces.IBucketRepository) Buc
 // Логика
 func (bs BucketService) TryConsume(ctx context.Context, clientID string) error {
     logger := logger.GetLoggerFromCtx(ctx)
+    now := time.Now()
 
-    err := bs.repo.TryConsume(ctx, clientID)
+    bucket, err := bs.repo.GetBucket(ctx, clientID)
     if err != nil {
         if errdefs.Is(err, errdefs.ErrNotFound) {
             logger.Info(ctx, "creating new token bucket for client", zap.String("clientID", clientID))
@@ -37,7 +38,7 @@ func (bs BucketService) TryConsume(ctx context.Context, clientID string) error {
                 &models.Bucket{
                     ClientID:   clientID,
                     Capacity:   bs.cfg.Bucket.Capacity,
-                    Tokens:     bs.cfg.Bucket.Capacity,
+                    Tokens:     bs.cfg.Bucket.Capacity - 1,
                     LastRefill: time.Now(),
                 },
             )
@@ -45,15 +46,10 @@ func (bs BucketService) TryConsume(ctx context.Context, clientID string) error {
         logger.Error(ctx, "failed to consume token", zap.String("clientID", clientID), zap.Error(err))
         return err
     }
-    logger.Info(ctx, "token consumed", zap.String("clientID", clientID))
+    
+    logger.Info(ctx, "bucket found for client", zap.String("clientID", clientID))
 
-    bucket, err := bs.repo.GetBucket(ctx, clientID)
-    if err != nil {
-        logger.Error(ctx, "failed to fetch bucket after consume", zap.String("clientID", clientID), zap.Error(err))
-        return err
-    }
 
-    now := time.Now()
     elapsed := now.Sub(bucket.LastRefill)
     interval := time.Duration(bs.cfg.Bucket.Refill.Interval)
     if elapsed >= interval {
@@ -61,16 +57,33 @@ func (bs BucketService) TryConsume(ctx context.Context, clientID string) error {
         steps := int(elapsed / interval)
         amount := steps * bs.cfg.Bucket.Refill.Amount
 
-        logger.Info(ctx, "refilling tokens",
+        if amount > 0 {
+            logger.Info(ctx, "refilling tokens",
                     zap.String("clientID", clientID),
                     zap.Int("amount", amount),
                     zap.Int("capacity", bucket.Capacity),
                 )
-        if err := bs.repo.RefillTokens(ctx, clientID, amount); err != nil {
-            return err
+
+            if err := bs.repo.RefillTokens(ctx, clientID, amount); err != nil {
+                logger.Error(ctx, "refill failed", zap.Error(err))
+                return err
+            }
+            logger.Info(ctx, "tokens refilled", zap.String("clientID", clientID))
         }
-        logger.Info(ctx, "tokens refilled", zap.String("clientID", clientID))
     }
+
+    if err := bs.repo.TryConsume(ctx, clientID); err != nil {
+        if errdefs.Is(err, errdefs.NotEnoughTokens) {
+            logger.Info(ctx, "consume failed: ", zap.Error(err))
+            // очищаем ошибку от логов Psql, так как скорее всего 
+            // запрос от proxy
+            return errdefs.ErrRateLimitExceeded
+        }
+        logger.Error(ctx, "consume failed: ", zap.Error(err))
+        return err
+    }
+
+    logger.Info(ctx, "token consumed", zap.String("clientID", clientID))
     return nil
 }
 

@@ -6,6 +6,9 @@ api:
   defaultLimit: 10
 
 proxy:
+  healthChecker:
+    interval: 15s # интервал проверки бэкенд серверов
+    healthCheckTimeout: 5s 
   timeout: 5s
   keepAlive: 30s
   idleConnTimeout: 100s
@@ -23,7 +26,7 @@ balancer:
 bucket:
   capacity: 10
   refill:
-    interval: 5s # периодичность пополения
+    interval: 1m # периодичность пополения
     amount:   1
 
 db:

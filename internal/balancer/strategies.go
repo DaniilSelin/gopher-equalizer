@@ -6,16 +6,16 @@ import (
     "gopher-equalizer/internal/interfaces"
 )
 
-var strategyFactories = map[string]func([]string) interfaces.Strategy{
-    "round_robin": func(backends []string) interfaces.Strategy {
+var strategyFactories = map[string]func([]string) interfaces.IStrategy{
+    "round_robin": func(backends []string) interfaces.IStrategy {
         return strategies.NewRoundRobin(backends)
     },
-    // "random": func(backends []string) interfaces.Strategy {
+    // "random": func(backends []string) interfaces.IStrategy {
     //     return strategies.NewRandom(backends)
     // },
 }
 
-func CreateStrategy(name string, backends []string) (interfaces.Strategy, error) {
+func CreateStrategy(name string, backends []string) (interfaces.IStrategy, error) {
     if factory, ok := strategyFactories[name]; ok {
         return factory(backends), nil
     }

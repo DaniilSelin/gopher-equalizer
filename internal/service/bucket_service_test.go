@@ -9,11 +9,13 @@ import (
 	"testing"
     "os"
     "log"
+    "time"
 
     "github.com/stretchr/testify/mock"
     "github.com/stretchr/testify/require"
 
     "gopher-equalizer/internal/errdefs"
+    "gopher-equalizer/internal/logger"
     "gopher-equalizer/internal/models"
     "gopher-equalizer/config"
 )
@@ -52,8 +54,8 @@ func (m *MockRepository) TryConsume(ctx context.Context, clientID string) error 
     args := m.Called(ctx, clientID)
     return args.Error(0)
 }
-func (m *MockRepository) RefillTokens(ctx context.Context, clientID string) error {
-    args := m.Called(ctx, clientID)
+func (m *MockRepository) RefillTokens(ctx context.Context, clientID string, amount int) error {
+    args := m.Called(ctx, clientID, amount)
     return args.Error(0)
 }
 
@@ -152,8 +154,71 @@ func TestBucketService(t *testing.T) {
 
         got, err := svc.ListBuckets(ctx, 2, 0)
         require.NoError(t, err)
-        require.Equal(t, list, got)
+        require.Equal(t, &list, got)
 
         mockRepo.AssertExpectations(t)
     })
+}
+
+func TestTryConsume(t *testing.T) {
+    ctx := context.Background()
+    ctx, _ = logger.New(ctx, cfg)
+
+   t.Run("CreatesBucketOnFirstConsume", func(t *testing.T) {
+       mockRepo := new(MockRepository)
+       svc := NewBucketService(cfg, mockRepo)
+
+       mockRepo.On("GetBucket", ctx, "client1").Return((*models.Bucket)(nil), errdefs.ErrNotFound).Once()
+       mockRepo.On("CreateBucket", ctx, mock.MatchedBy(func(b *models.Bucket) bool {
+           return b.ClientID == "client1" && b.Tokens == cfg.Bucket.Capacity-1
+       })).Return(nil).Once()
+
+       err := svc.TryConsume(ctx, "client1")
+       require.NoError(t, err)
+       mockRepo.AssertExpectations(t)
+   })
+
+   t.Run("NoRefillAndConsume", func(t *testing.T) {
+       mockRepo := new(MockRepository)
+       svc := NewBucketService(cfg, mockRepo)
+
+       bucket := &models.Bucket{ClientID: "c2", Capacity: 5, Tokens: 3, LastRefill: time.Now()}
+       mockRepo.On("GetBucket", ctx, "c2").Return(bucket, nil).Once()
+       mockRepo.On("TryConsume", ctx, "c2").Return(nil).Once()
+
+       err := svc.TryConsume(ctx, "c2")
+       require.NoError(t, err)
+       mockRepo.AssertExpectations(t)
+   })
+
+   t.Run("RefillThenConsume", func(t *testing.T) {
+       mockRepo := new(MockRepository)
+       svc := NewBucketService(cfg, mockRepo)
+
+       past := time.Now().Add(
+            -2 * time.Duration(cfg.Bucket.Refill.Interval),
+        )
+       bucket := &models.Bucket{ClientID: "c3", Capacity: 10, Tokens: 1, LastRefill: past}
+       mockRepo.On("GetBucket", ctx, "c3").Return(bucket, nil).Once()
+       expectedAmount := 2 * cfg.Bucket.Refill.Amount
+       mockRepo.On("RefillTokens", ctx, "c3", expectedAmount).Return(nil).Once()
+       mockRepo.On("TryConsume", ctx, "c3").Return(nil).Once()
+
+       err := svc.TryConsume(ctx, "c3")
+       require.NoError(t, err)
+       mockRepo.AssertExpectations(t)
+   })
+
+   t.Run("InsufficientTokens", func(t *testing.T) {
+       mockRepo := new(MockRepository)
+       svc := NewBucketService(cfg, mockRepo)
+
+       bucket := &models.Bucket{ClientID: "c4", Capacity: 5, Tokens: 0, LastRefill: time.Now()}
+       mockRepo.On("GetBucket", ctx, "c4").Return(bucket, nil).Once()
+       mockRepo.On("TryConsume", ctx, "c4").Return(errdefs.NotEnoughTokens).Once()
+
+       err := svc.TryConsume(ctx, "c4")
+       require.ErrorIs(t, err, errdefs.NotEnoughTokens)
+       mockRepo.AssertExpectations(t)
+   })
 }

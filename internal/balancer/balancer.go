@@ -5,13 +5,19 @@ import (
 )
 
 type Balancer struct {
-    strat interfaces.Strategy
+    strat interfaces.IStrategy
 }
 
-func NewBalancer(strat interfaces.Strategy) *Balancer {
-    return &Balancer{strat: strat}
+func NewBalancer(strategy interfaces.IStrategy) *Balancer {
+    return &Balancer{
+        strat: strategy,
+    }
 }
 
 func (b *Balancer) NextBackend() (string, error) {
     return b.strat.Next()
+}
+
+func (b *Balancer) ResetBackends(backs []string) {
+    b.strat.ResetBackends(backs)
 }

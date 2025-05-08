@@ -8,7 +8,7 @@ import (
 type RoundRobin struct {
     servers []string
     index   int
-    mu      sync.Mutex
+    mu      sync.RWMutex
 }
 
 func NewRoundRobin(servers []string) *RoundRobin {
@@ -24,4 +24,10 @@ func (rr *RoundRobin) Next() (string, error) {
     server := rr.servers[rr.index]
     rr.index = (rr.index + 1) % len(rr.servers)
     return server, nil
+}
+
+func (rr *RoundRobin) ResetBackends(backs []string) {
+    rr.mu.Lock()
+    defer rr.mu.Unlock()
+    rr.servers = backs
 }

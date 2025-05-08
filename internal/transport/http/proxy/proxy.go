@@ -28,8 +28,11 @@ type Proxy struct {
     logger *logger.Logger
 }
 
+type errorTransport struct {
+    base http.RoundTripper
+}
+
 func NewProxy(cfg *config.Config, bal *balancer.Balancer, bsrv interfaces.IBucketService, logger *logger.Logger) *Proxy {
-    // Вынести в конфиг
     transport := &http.Transport{
         Proxy: http.ProxyFromEnvironment,
         DialContext: (&net.Dialer{
@@ -58,28 +61,14 @@ func NewProxy(cfg *config.Config, bal *balancer.Balancer, bsrv interfaces.IBucke
 }
 
 func (p *Proxy) errHandler(w http.ResponseWriter, req *http.Request, err error) {
-    ctx := req.Context()
-
-    if ctxErr, ok := req.Context().Value(proxyErrorKey).(error); ok {
-        if errdefs.Is(ctxErr, errdefs.ErrNoBackends) {
-            p.logger.Info(ctx, "no backends")
-            http.Error(w, "Service Unavailable: no healthy backends", http.StatusServiceUnavailable)
-            return
-        }
-        if errdefs.Is(ctxErr, errdefs.ErrRateLimitExceeded) {
-            p.logger.Info(ctx, "rate limit")
-            http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
-            return
-        }
-        p.logger.Error(ctx, "proxy error", zap.Error(ctxErr))
-        // Неизвестная ошибка — можно вернуть 502
-        http.Error(w, "Bad Gateway", http.StatusBadGateway)
+    if errdefs.Is(err, errdefs.ErrNoBackends) {
+        p.logger.Info(req.Context(), "no backends")
+        http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
         return
     }
 
-    p.logger.Error(ctx, "unexpected proxy error")
-    // Если ошибка не из контекста — стандартная обработка
-    http.Error(w, "Proxy error", http.StatusBadGateway)
+    p.logger.Error(req.Context(), "PROXY: unexpected proxy error")
+    http.Error(w, "Bad Gateway", http.StatusBadGateway)
 }
 
 func (p *Proxy) director(req *http.Request) {
@@ -87,21 +76,9 @@ func (p *Proxy) director(req *http.Request) {
     req = req.WithContext(ctx)
     ctx = logger.SetLoggerInCtx(ctx, p.logger)
 
-    ip, _, err := net.SplitHostPort(req.RemoteAddr)
-    if err != nil {
-        p.logger.Info(ctx, "invalid client address", zap.Error(err))
-        ip = req.RemoteAddr
-    }
-
-    if err := p.bsrv.TryConsume(ctx, ip); err != nil {
-        p.logger.Info(ctx, "rate limit exceeded", zap.String("client_ip", ip), zap.Error(err))
-        req = req.WithContext(context.WithValue(ctx, proxyErrorKey, err))
-        return
-    }
-
     backend, err := p.balancer.NextBackend()
     if err != nil {
-        p.logger.Info(ctx, "no available backends", zap.Error(err))
+        p.logger.Info(ctx, "PROXY-DIRECTION: no available backends", zap.Error(err))
         req = req.WithContext(context.WithValue(ctx, proxyErrorKey, err))
         return
     }
@@ -111,28 +88,36 @@ func (p *Proxy) director(req *http.Request) {
     req.URL.Host = target.Host
     req.Host = target.Host
 
-    p.logger.Info(ctx, "proxying request",
+    p.logger.Info(ctx, "PROXY-DIRECTION: proxying request",
         zap.String("backend", backend),
         zap.String("path", req.URL.Path),
     )
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    backend, err := p.balancer.NextBackend()
-    if err != nil {
-        p.logger.Info(ctx, "no backends available", zap.Error(err))
-        http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+    ctx := logger.SetLoggerInCtx(r.Context(), p.logger)
+    ctx = GenerateRequestID(ctx)
+    ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+
+    if err := p.bsrv.TryConsume(ctx, ip); err != nil {
+        p.logger.Info(ctx, "rate limit exceeded", zap.String("client_ip", ip), zap.Error(err))
+        http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
         return
     }
-    // Записываем в лог, на какой backend уйдёт запрос
+
+    // backend, err := p.balancer.NextBackend()
+    // if err != nil {
+    //     p.logger.Info(ctx, "no backends available", zap.Error(err))
+    //     http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+    //     return
+    // }
+
     p.logger.Info(ctx, "proxy to backend",
-        zap.String("backend", backend),
+        // zap.String("backend", backend),
         zap.String("method", r.Method),
         zap.String("path", r.URL.Path),
     )
-    // Меняем URL внутри запроса и передаём в ReverseProxy
-    // (Director внутри rp сработает заново, но host уже выбран)
+
     p.rp.ServeHTTP(w, r)
 }
 

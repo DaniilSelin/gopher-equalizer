@@ -65,7 +65,13 @@ type APIConfig struct {
 	DefaultLimit int `yaml:"defaultLimit"`
 }
 
+type HealthCheckerConfig struct {
+	Interval Duration `yaml:"interval"`
+	HealthCheckTimeout Duration `yaml:"healthCheckTimeout"`
+}
+
 type ProxyConfig struct {
+	HealthChecker HealthCheckerConfig `yaml:"healthChecker"`
 	Timeout Duration   `yaml:"timeout"`
   	KeepAlive Duration   `yaml:"keepAlive"`
   	IdleConnTimeout Duration   `yaml:"idleConnTimeout"`
