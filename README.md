@@ -5,8 +5,44 @@ gopher-equalizer — это обратный HTTP-прокси на Go, обес
 
 ## Архитектура проекта
 
-Диаграмма пакетов
+### Диаграмма пакетов
+
 ![gopher-equalizer drawio](https://github.com/user-attachments/assets/8b109d85-462f-4bc3-801d-f0459018fb74)
+
+#### Описание
+
+    1. main - Точка входа приложения. Загружает конфиг, инициализирует логгер, БД, репозитории, сервисный     слой, маршрутизатор API и прокси. Запускает одновременно HTTP-API, прокси и фоновый health-checker.
+
+    2. config — Отвечает за загрузку config.yml в структуру Config. Все остальные пакеты (main, balancer, proxy, service, repository, healthChecker, logger) получают *config.Config и читают из него свои параметры.
+
+    3. logger — Инициализирует контекстный логгер. Сам логгер реализован на основе zap.Logger и хранится в контекст. Предоставляет функцию GetLoggerFromCtx для извлечения логгера из контекста.
+
+    4. interfaces — Содержит набор общих интерфейсов:
+        type IBucketRepository  // Create/Get/Update/Delete для token buckets  
+        type IBucketService     // бизнес-логика лимитера + CRUD  
+        type IBalancer          // NextBackend, ResetBackends  
+        type IStrategy          // Next, ResetBackends
+    Этот пает служит для связи пакетов между собой. Если слою требуется методы из другого слоя, то супертип слоя должен содержать в себе поля с интерфейсом необходимого типа с этими методами.
+    
+    5. models & errdefs — models: определяет сущность Bucket. errdefs: централизованный пакет ошибок, который возвращают репозиторий и сервис, а API/прокси превращают их в HTTP-коды. Хранит в себе станадртные ошибки общие дя всего балансировщика.
+
+    6. repository — Реализует IBucketRepository через PostgreSQL (pgxpool). Миграции лежат в internal/database/migrations, таблица token_buckets.
+
+    7. service — Реализует IBucketService: основная бизнес-логика token bucket, пополнение и потребление токенов, а так же CRUD опрации
+
+    8. balancer — Обёртка над IStrategy. Balancer держит стратегию (RoundRobin и т.п.) и делегирует ей выбор следующего бэкенда. Позволяет сбрасывать пул серверов (ResetBackends) для health-checker’а.
+
+    9. pkg/strategies — Стратегии балансировки: roundrobin.go, random.go и др. Помещен в именно этот пакет, так как код вполне переиспользуемый, и заменяемый. Тут можно реализовать другой алгоритм балансировки, главное соответствовать интерфейсу: IStrategy.
+
+    10. transport/http
+    
+        api: маршруты для CRUD-API бакетов.
+    
+        proxy: ReverseProxy, который делает rate-limit и балансировку.
+    
+        healthCheck: фоновый проверяющий компонент, который пингует бэкенды.
+
+
 
 ### Прокси с балансировщиком
 
