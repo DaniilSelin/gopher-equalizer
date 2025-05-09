@@ -75,9 +75,9 @@ func run(ctx context.Context, w io.Writer, args []string) (*http.Server, *pgxpoo
 
     // 4. HTTP-API для управления buckets
     apiH := api.NewHandler(ctx, cfg, bSrv)
-    apiMux := api.NewRouter(apiH) // ваш ServeMux для /buckets
+    apiMux := api.NewRouter(apiH)
 
-    // 5.1 Балансировщик и прокси
+    // 5. Балансировщик и прокси
     strat, err := balancer.CreateStrategy(cfg.Balancer.Strategy, cfg.Balancer.Backends)
     if err != nil {
         return nil, nil, err
@@ -85,18 +85,18 @@ func run(ctx context.Context, w io.Writer, args []string) (*http.Server, *pgxpoo
     bal := balancer.NewBalancer(strat)
     healcheck := health.NewHealthChecker(cfg, bal)
 
-    // 5.2 Запускаем хелф-чекер
+    // 6. Запускаем хелф-чекер
     healcheck.StartHealthChecks(ctx)
 
     proxy := proxy.NewProxy(cfg, bal, bSrv, log)
 
-    // 6. Общий mux: сначала API, потом прокси «на всё остальное»
+    // 7. Общий mux: сначала API, потом прокси «на всё остальное»
     mux := http.NewServeMux()
     mux.Handle("/buckets", apiMux)
     mux.Handle("/buckets/", apiMux)
     mux.Handle("/", proxy)
 
-    // 7. HTTP-сервер
+    // 8. HTTP-сервер
     addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
     srv := &http.Server{
         Addr:    addr,
